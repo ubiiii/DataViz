@@ -46,7 +46,10 @@ if st.sidebar.button("🎲 Generate New Data"):
     st.rerun()
 
 # Generate data
-np.random.seed(42)  # For reproducibility
+# FIX 1: Add reproducibility toggle
+reproducible = st.sidebar.checkbox("Fix random seed (reproducible)", value=False)
+if reproducible:
+    np.random.seed(42)  # For reproducibility
 x_data = np.linspace(-1, 1, num_points)
 e = np.random.normal(0, noise_level, num_points)
 
@@ -58,12 +61,13 @@ else:  # Non-linear
     equation = f"y = {true_slope:.2f}x² + {true_offset:.2f}"
 
 # Initialize session state
+# FIX 4: Initialize as None instead of misleading defaults
 if 'run_gd' not in st.session_state:
     st.session_state.run_gd = False
 if 'learned_slope' not in st.session_state:
-    st.session_state.learned_slope = 0.5
+    st.session_state.learned_slope = None
 if 'learned_offset' not in st.session_state:
-    st.session_state.learned_offset = 0.5
+    st.session_state.learned_offset = None
 if 'diverged' not in st.session_state:
     st.session_state.diverged = False
 if 'error_timestamp' not in st.session_state:
@@ -93,6 +97,9 @@ def grad_loss(slope, offset):
 # Run Gradient Descent
 if st.session_state.run_gd:
     st.session_state.run_gd = False  # Reset button
+    # FIX 2: Reset divergence flags at start of each run
+    st.session_state.diverged = False
+    st.session_state.error_timestamp = 0
     
     # Initialize parameters
     learned_slope = np.random.rand() * 2 - 1  # Random between -1 and 1
@@ -114,10 +121,10 @@ if st.session_state.run_gd:
         slopes.append(learned_slope)
         offsets.append(learned_offset)
         
-        # Check for divergence
-        if np.isnan(current_loss) or np.isinf(current_loss) or current_loss > 1000:
+        # FIX 3: Better divergence detection
+        if np.isnan(current_loss) or np.isinf(current_loss) or (i > 0 and current_loss > 5 * losses[-2]):
             st.session_state.diverged = True
-            st.session_state.error_timestamp = time.time()  # Record when error occurred
+            st.session_state.error_timestamp = time.time()
             break
     
     # Store results in session state
@@ -140,7 +147,7 @@ with col4:
     st.metric("Noise", f"{noise_level:.2f}")
 
 # Display learned parameters if gradient descent was run
-if 'losses' in st.session_state:
+if 'losses' in st.session_state and st.session_state.losses is not None:
     learned_slope = st.session_state.learned_slope
     learned_offset = st.session_state.learned_offset
     final_loss = st.session_state.losses[-1]
@@ -161,14 +168,14 @@ if 'losses' in st.session_state:
     # Compact parameter comparison
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        if np.isnan(learned_slope):
+        if learned_slope is None or np.isnan(learned_slope):
             st.metric("Learned Slope", "NaN")
         else:
             st.metric("Learned Slope", f"{learned_slope:.3f}")
     with col2:
         st.metric("True Slope", f"{true_slope:.3f}")
     with col3:
-        if np.isnan(learned_offset):
+        if learned_offset is None or np.isnan(learned_offset):
             st.metric("Learned Offset", "NaN")
         else:
             st.metric("Learned Offset", f"{learned_offset:.3f}")
@@ -192,14 +199,15 @@ with col1:
         ax.plot(x_data, true_slope * x_data**2 + true_offset, 'r-', linewidth=3, label='True Curve')
     
     # Plot learned line/curve if gradient descent was run
-    if 'losses' in st.session_state:
+    if 'losses' in st.session_state and st.session_state.losses is not None:
         learned_slope = st.session_state.learned_slope
         learned_offset = st.session_state.learned_offset
         
-        if model_type == "Linear Regression":
-            ax.plot(x_data, learned_slope * x_data + learned_offset, 'k--', linewidth=2, label='Learned Line')
-        else:
-            ax.plot(x_data, learned_slope * x_data**2 + learned_offset, 'k--', linewidth=2, label='Learned Curve')
+        if learned_slope is not None and learned_offset is not None and not (np.isnan(learned_slope) or np.isnan(learned_offset)):
+            if model_type == "Linear Regression":
+                ax.plot(x_data, learned_slope * x_data + learned_offset, 'k--', linewidth=2, label='Learned Line')
+            else:
+                ax.plot(x_data, learned_slope * x_data**2 + learned_offset, 'k--', linewidth=2, label='Learned Curve')
     
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
@@ -208,9 +216,11 @@ with col1:
     ax.grid(True, alpha=0.3)
     
     st.pyplot(fig)
+    # FIX 4: Close figure to prevent memory leak
+    plt.close(fig)
 
 with col2:
-    if 'losses' in st.session_state:
+    if 'losses' in st.session_state and st.session_state.losses is not None:
         st.subheader("📉 Loss Convergence")
         current_time = time.time()
         show_error = (st.session_state.diverged or np.isnan(st.session_state.losses[-1])) and \
@@ -226,6 +236,8 @@ with col2:
             ax2.set_title('Gradient Descent Convergence')
             ax2.grid(True, alpha=0.3)
             st.pyplot(fig2)
+            # FIX 4: Close figure to prevent memory leak
+            plt.close(fig2)
     else:
         st.subheader("📉 Loss Convergence")
         st.info("Run Gradient Descent to see convergence plot")
