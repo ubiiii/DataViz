@@ -78,3 +78,4 @@ This project is open source and available under the [MIT License](LICENSE).
 ---
 
 **Built for CECS 552 - Machine Learning Education** 🎓
+
